@@ -984,30 +984,22 @@ function App() {
   const [toastShow, setToastShow] = useState(false);
   const toastTimer = useRef(null);
 
-  // ✅ FIX: On app load, FIRST get CSRF token, THEN check session
+  // ✅ FIX: On app load, check session. Previously if getMe() threw (e.g. 403),
+  // the .catch() block wasn't always hit because apiCall now returns safely
+  // instead of throwing. Now we check res.id explicitly.
   useEffect(() => {
-     const initApp = async () => {
-    try {
-      // Token auth — no CSRF fetch needed at all
-      
-        
-        // STEP 2: Now check if user is logged in
-        const res = await getMe();
-        if (res && res.id) {
-          setUser(res);
-          setPage("home");
-        } else {
-          setPage("profile");
-        }
-      } catch (err) {
-        console.log('Not logged in yet - show login screen');
+    getMe().then(res => {
+      if (res && res.id) {
+        setUser(res);
+        setPage("home");
+      } else {
         setPage("profile");
-      } finally {
-        setAuthReady(true);
       }
-    };
-    
-    initApp();
+      setAuthReady(true);
+    }).catch(() => {
+      setPage("profile");
+      setAuthReady(true);
+    });
   }, []);
 
   useEffect(() => {
