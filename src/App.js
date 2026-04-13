@@ -18,6 +18,7 @@ import {
   deleteJournal,
   getContact,
   saveContact as apiSaveContact,
+  getAiAnalysis,              // ← NEW
 } from "./api";
 
 
@@ -213,8 +214,10 @@ function Nav({ page, setPage, dark, setDark, onLogout }) {
 // ─────────────────────────────────────────────
 
 function Home({ setPage, user }) {
-  const [moods,    setMoods]    = useState([]);
-  const [journals, setJournals] = useState([]);
+  const [moods,     setMoods]     = useState([]);
+  const [journals,  setJournals]  = useState([]);
+  const [aiResult,  setAiResult]  = useState(null);   // ← NEW
+  const [aiLoading, setAiLoading] = useState(false);  // ← NEW
 
   useEffect(() => {
     getMoods().then(res => { if (Array.isArray(res)) setMoods(res); });
@@ -237,6 +240,33 @@ function Home({ setPage, user }) {
     { icon: "📊",  label: "Insights",         val: "View trends",                                 page: "insights" },
   ];
 
+  // ── NEW: trend → style mapping ──────────────────
+  const TREND_STYLES = {
+    Positive: { bg: "rgba(16,185,129,0.10)",  border: "#10B981", emoji: "🌻", color: "#065f46" },
+    Neutral:  { bg: "rgba(107,114,128,0.10)", border: "#6B7280", emoji: "🌿", color: "#374151" },
+    Negative: { bg: "rgba(59,130,246,0.10)",  border: "#3B82F6", emoji: "💙", color: "#1e3a5f" },
+  };
+
+  // ── NEW: fetch AI insight ────────────────────────
+  const fetchAiInsight = async () => {
+    setAiLoading(true);
+    setAiResult(null);
+    try {
+      const res = await getAiAnalysis();
+      if (res && res._status !== 0) {
+        setAiResult(res);
+      } else {
+        setAiResult({ message: "Something went wrong. Please try again later." });
+      }
+    } catch {
+      setAiResult({ message: "Unable to fetch insights right now. Please try again." });
+    }
+    setAiLoading(false);
+  };
+
+  const trendStyle = aiResult?.trend ? TREND_STYLES[aiResult.trend] : null;
+  // ────────────────────────────────────────────────
+
   return (
     <div className="page">
       <div className="home-hero">
@@ -258,6 +288,50 @@ function Home({ setPage, user }) {
             </Card>
           ))}
         </div>
+
+        {/* ── AI MOOD ANALYSIS SECTION (NEW) ── */}
+        <div style={{ width: "100%", maxWidth: "540px", margin: "1.5rem auto 0" }}>
+          <Btn
+            onClick={fetchAiInsight}
+            disabled={aiLoading}
+            variant="secondary"
+            full
+          >
+            {aiLoading ? "Analyzing your mood… 🔍" : "✨ Get AI Mood Insight"}
+          </Btn>
+
+          {aiResult && (
+            <div style={{
+              marginTop: "1rem",
+              padding: "1.25rem 1.4rem",
+              borderRadius: "16px",
+              background: trendStyle ? trendStyle.bg : "var(--card)",
+              border: `1.5px solid ${trendStyle ? trendStyle.border : "var(--border)"}`,
+              textAlign: "left",
+            }}>
+              {aiResult.trend && (
+                <div style={{
+                  fontWeight: 700,
+                  fontSize: "1rem",
+                  marginBottom: "0.5rem",
+                  color: trendStyle?.color || "var(--text)",
+                }}>
+                  {trendStyle?.emoji} Mood Trend: {aiResult.trend}
+                </div>
+              )}
+              <p style={{
+                fontSize: "0.95rem",
+                lineHeight: "1.65",
+                color: "var(--text2)",
+                margin: 0,
+              }}>
+                {aiResult.message}
+              </p>
+            </div>
+          )}
+        </div>
+        {/* ── END AI MOOD ANALYSIS SECTION ── */}
+
       </div>
     </div>
   );
@@ -275,12 +349,11 @@ function CheckIn({ toast }) {
   const [spinResult,   setSpinResult]   = useState(null);
   const [alreadyToday, setAlreadyToday] = useState(false);
   const [recentMoods,  setRecentMoods]  = useState([]);
-  const [saving,       setSaving]       = useState(false);  // ✅ FIX: prevent double-submit
+  const [saving,       setSaving]       = useState(false);
   const [spunToday,    setSpunToday]    = useState(() => ls("mb_lastSpin") === todayStr());
 
   useEffect(() => {
     getTodayMood().then(res => {
-      // ✅ FIX: _status 200 means mood already logged today
       if (res && res._status === 200 && res.id) setAlreadyToday(true);
     });
     getMoods().then(res => {
@@ -305,13 +378,10 @@ function CheckIn({ toast }) {
     const res = await logMood({ mood: selected, note: "" });
     setSaving(false);
 
-    // ✅ FIX: Previously crashed if res was null or had no _status.
-    // Now safely checks _status with optional chaining.
     if (res?._status === 201) {
       toast("Mood saved ✅");
       setAlreadyToday(true);
     } else if (res?._status === 400 && res?.error) {
-      // Django returns 400 if mood already logged today
       toast(res.error);
       setAlreadyToday(true);
     } else {
@@ -858,9 +928,6 @@ function Profile({ toast, user, setUser }) {
   const doSignup = async () => {
     if (!email || !pw) { toast("Please fill all required fields"); return; }
 
-    // ✅ FIX: Previously passed { username: email, password: pw } and ignored `name`.
-    // Django's RegisterSerializer expects 'username' and 'password'.
-    // 'first_name' is optional — only include if the user typed something.
     const payload = { username: email, password: pw };
     if (name.trim()) payload.first_name = name.trim();
 
@@ -984,14 +1051,9 @@ function App() {
   const [toastShow, setToastShow] = useState(false);
   const toastTimer = useRef(null);
 
-  // ✅ FIX: On app load, FIRST get CSRF token, THEN check session
   useEffect(() => {
      const initApp = async () => {
     try {
-      // Token auth — no CSRF fetch needed at all
-      
-        
-        // STEP 2: Now check if user is logged in
         const res = await getMe();
         if (res && res.id) {
           setUser(res);
@@ -1006,7 +1068,7 @@ function App() {
         setAuthReady(true);
       }
     };
-    
+
     initApp();
   }, []);
 

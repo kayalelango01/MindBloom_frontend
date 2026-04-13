@@ -163,3 +163,10 @@ export async function getContact() {
 export async function saveContact(payload) {
   return post("/emergency-contact/", payload);
 }
+// ─────────────────────────────────────────────
+// AI ANALYSIS
+// ─────────────────────────────────────────────
+
+export async function getAiAnalysis() {
+  return get("/ai-analysis/");
+}
